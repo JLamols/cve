@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zero-Day Vulnerability Timeline</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #111827; /* Tailwind gray-900 */
+            color: #d1d5db; /* Tailwind gray-300 */
+        }
+        .tooltip {
+            position: absolute;
+            text-align: center;
+            padding: 8px;
+            font-size: 12px;
+            background: #1f2937; /* Tailwind gray-800 */
+            border: 1px solid #4b5563; /* Tailwind gray-600 */
+            border-radius: 8px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        .chart-container svg {
+            width: 100%;
+            height: 100%;
+        }
+        .axis-label {
+            font-size: 0.8rem;
+            fill: #9ca3af; /* Tailwind gray-400 */
+        }
+        .grid .domain {
+            stroke: none;
+        }
+        .grid .tick line {
+            stroke: #374151; /* Tailwind gray-700 */
+            stroke-opacity: 0.7;
+            stroke-dasharray: 2,2;
+        }
+        .modal {
+            transition: opacity 0.25s ease;
+        }
+        .modal-content {
+            transition: transform 0.25s ease;
+        }
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+        }
+    </style>
+</head>
+<body class="antialiased">
+
+    <!-- Main Container -->
+    <div class="container mx-auto p-4 md:p-6 lg:p-8">
+        
+        <!-- Header -->
+        <header class="mb-6">
+            <h1 class="text-3xl md:text-4xl font-bold text-white">Zero-Day Vulnerability Archive</h1>
+            <p class="text-gray-400 mt-1">An interactive timeline of major software exploits.</p>
+        </header>
+
+        <!-- Control Panel / Filters -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6 p-4 bg-gray-800 rounded-lg shadow-lg">
+            <div>
+                <label for="cve-search" class="block text-sm font-medium text-gray-300">CVE ID</label>
+                <input type="text" id="cve-search" placeholder="e.g., CVE-2024-12345" class="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-white focus:ring-indigo-500 focus:border-indigo-500">
+            </div>
+            <div>
+                <label for="vendor-filter" class="block text-sm font-medium text-gray-300">Vendor</label>
+                <select id="vendor-filter" class="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-white focus:ring-indigo-500 focus:border-indigo-500">
+                    <option value="">All</option>
+                </select>
+            </div>
+            <div>
+                <label for="product-filter" class="block text-sm font-medium text-gray-300">Product/Software</label>
+                <input type="text" id="product-filter" placeholder="e.g., Windows 11" class="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-white focus:ring-indigo-500 focus:border-indigo-500">
+            </div>
+            <div>
+                <label for="severity-filter" class="block text-sm font-medium text-gray-300">Severity</label>
+                <select id="severity-filter" class="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-white focus:ring-indigo-500 focus:border-indigo-500">
+                    <option value="">All</option>
+                    <option>Critical</option>
+                    <option>High</option>
+                    <option>Medium</option>
+                    <option>Low</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Main Content Area -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            
+            <!-- Left Column: Interactive Timeline -->
+            <div class="lg:col-span-2 bg-gray-800 p-4 rounded-lg shadow-lg chart-container">
+                <h2 class="text-xl font-semibold text-white mb-4">Exploit Timeline</h2>
+                <div id="timeline-chart" class="w-full h-[500px] cursor-move"></div>
+            </div>
+
+            <!-- Right Column: Stats & Details -->
+            <div class="space-y-6">
+                <!-- Stats Dashboard -->
+                <div class="bg-gray-800 p-4 rounded-lg shadow-lg">
+                    <h2 class="text-xl font-semibold text-white mb-4">Dashboard</h2>
+                    <div class="space-y-4">
+                        <!-- Time to Patch -->
+                        <div class="bg-gray-700/50 p-3 rounded-md">
+                            <h3 class="text-sm font-medium text-gray-400">Avg. Time-to-Patch</h3>
+                            <p id="avg-ttp" class="text-2xl font-bold text-white">- days</p>
+                        </div>
+                        <!-- Top Vendors -->
+                        <div class="bg-gray-700/50 p-3 rounded-md chart-container">
+                             <h3 class="text-sm font-medium text-gray-400 mb-2">Top 5 Affected Vendors</h3>
+                             <div id="top-vendors-chart" class="w-full h-48"></div>
+                        </div>
+                         <!-- Monthly Frequency -->
+                        <div class="bg-gray-700/50 p-3 rounded-md chart-container">
+                             <h3 class="text-sm font-medium text-gray-400 mb-2">Monthly Vulnerability Frequency</h3>
+                             <div id="monthly-freq-chart" class="w-full h-48"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tooltip Element -->
+    <div id="tooltip" class="tooltip"></div>
+
+    <!-- Modal for Exploit Details -->
+    <div id="modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-75 pointer-events-none opacity-0 modal">
+        <div id="modal-content" class="bg-gray-800 rounded-lg shadow-2xl w-full max-w-2xl transform scale-95 modal-content overflow-hidden">
+            <!-- Modal Header -->
+            <div id="modal-header" class="p-4 border-b border-gray-700 flex justify-between items-center">
+                <h3 id="modal-cve-id" class="text-xl font-bold text-white"></h3>
+                <button id="modal-close-btn" class="text-gray-400 hover:text-white">&times;</button>
+            </div>
+            <!-- Modal Body -->
+            <div class="p-6 space-y-4 text-gray-300 max-h-[70vh] overflow-y-auto">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <p><strong>Vendor:</strong> <span id="modal-vendor"></span></p>
+                    <p><strong>Affected Product:</strong> <span id="modal-product"></span></p>
+                    <p><strong>Severity:</strong> <span id="modal-severity"></span></p>
+                    <p><strong>Exploit Type:</strong> <span id="modal-exploit-type"></span></p>
+                </div>
+                <div class="border-t border-gray-700 pt-4 mt-4">
+                    <h4 class="font-semibold text-white mb-2">Timeline</h4>
+                    <ul class="space-y-2">
+                        <li><strong>Disclosure Date:</strong> <span id="modal-disclosure-date"></span></li>
+                        <li><strong>PoC Published:</strong> <span id="modal-poc-date"></span></li>
+                        <li><strong>Patch Date:</strong> <span id="modal-patch-date"></span></li>
+                    </ul>
+                </div>
+                <div class="border-t border-gray-700 pt-4 mt-4">
+                     <h4 class="font-semibold text-white mb-2">Status</h4>
+                     <p><span id="modal-status-dot" class="status-dot"></span><span id="modal-status-text"></span></p>
+                </div>
+                <div class="border-t border-gray-700 pt-4 mt-4">
+                    <h4 class="font-semibold text-white mb-2">Links</h4>
+                    <div class="flex space-x-4">
+                        <a id="modal-mitre-link" href="#" target="_blank" class="text-indigo-400 hover:text-indigo-300">MITRE CVE</a>
+                        <a id="modal-poc-link" href="#" target="_blank" class="text-indigo-400 hover:text-indigo-300">Proof of Concept</a>
+                        <a id="modal-vendor-link" href="#" target="_blank" class="text-indigo-400 hover:text-indigo-300">Vendor Advisory</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+
+        // --- MOCK DATA ---
+        // In a real application, this would be fetched from an API.
+        const mockVulnerabilities = [
+            { cveId: 'CVE-2024-12345', vendor: 'Microsoft', product: 'Windows 11', severity: 'Critical', exploitType: 'Remote Code Execution', disclosureDate: '2024-01-15', patchDate: '2024-02-12', exploitPublishDate: '2024-01-20', status: 'Patched', links: { mitre: '#', poc: '#', vendorAdvisory: '#' } },
+            { cveId: 'CVE-2024-22334', vendor: 'Google', product: 'Chrome', severity: 'High', exploitType: 'Use After Free', disclosureDate: '2024-02-05', patchDate: '2024-02-08', exploitPublishDate: '2024-02-06', status: 'Patched', links: { mitre: '#', poc: '#', vendorAdvisory: '#' } },
+            { cveId: 'CVE-2024-33445', vendor: 'Apple', product: 'iOS 17', severity: 'High', exploitType: 'Kernel Memory Leak', disclosureDate: '2024-03-10', patchDate: null, exploitPublishDate: '2024-03-15', status: 'Still Unpatched', links: { mitre: '#', poc: '#', vendorAdvisory: '#' } },
+            { cveId: 'CVE-2024-45678', vendor: 'Atlassian', product: 'Jira', severity: 'Critical', exploitType: 'Authentication Bypass', disclosureDate: '2024-03-22', patchDate: '2024-04-01', exploitPublishDate: '2024-03-25', status: 'Patched', links: { mitre: '#', poc: '#', vendorAdvisory: '#' } },
+            { cveId: 'CVE-2024-55555', vendor: 'Mozilla', product: 'Firefox', severity: 'Medium', exploitType: 'Cross-Site Scripting (XSS)', disclosureDate: '2024-04-01', patchDate: '2024-04-10', exploitPublishDate: null, status: 'Patched', links: { mitre: '#', poc: '#', vendorAdvisory: '#' } },
+            { cveId: 'CVE-2024-66778', vendor: 'Adobe', product: 'Acrobat Reader', severity: 'High', exploitType: 'Out-of-Bounds Read', disclosureDate: '2024-04-18', patchDate: null, exploitPublishDate: '2024-04-25', status: 'Under Investigation', links: { mitre: '#', poc: '#', vendorAdvisory: '#' } },
+            { cveId: 'CVE-2024-78901', vendor: 'VMware', product: 'ESXi', severity: 'Critical', exploitType: 'LPE', disclosureDate: '2024-05-02', patchDate: null, exploitPublishDate: '2024-05-10', status: 'Still Unpatched', links: { mitre: '#', poc: '#', vendorAdvisory: '#' } },
+            { cveId: 'CVE-2023-98765', vendor: 'Microsoft', product: 'Exchange Server', severity: 'Critical', exploitType: 'RCE', disclosureDate: '2023-11-20', patchDate: '2023-12-12', exploitPublishDate: '2023-11-25', status: 'Patched', links: { mitre: '#', poc: '#', vendorAdvisory: '#' } },
+            { cveId: 'CVE-2023-87654', vendor: 'Cisco', product: 'IOS XE', severity: 'High', exploitType: 'Command Injection', disclosureDate: '2023-12-05', patchDate: null, exploitPublishDate: '2023-12-15', status: 'Still Unpatched', links: { mitre: '#', poc: '#', vendorAdvisory: '#' } },
+            { cveId: 'CVE-2024-11223', vendor: 'Apple', product: 'macOS Sonoma', severity: 'High', exploitType: 'Sandbox Escape', disclosureDate: '2024-05-20', patchDate: null, exploitPublishDate: null, status: 'Under Investigation', links: { mitre: '#', poc: '#', vendorAdvisory: '#' } }
+        ].map(d => ({...d, disclosureDate: new Date(d.disclosureDate), patchDate: d.patchDate ? new Date(d.patchDate) : null, exploitPublishDate: d.exploitPublishDate ? new Date(d.exploitPublishDate) : null }));
+
+        let vulnerabilities = [...mockVulnerabilities];
+        
+        // --- UI ELEMENTS ---
+        const tooltip = d3.select("#tooltip");
+        const modal = document.getElementById('modal');
+        const modalContent = document.getElementById('modal-content');
+        const modalCloseBtn = document.getElementById('modal-close-btn');
+
+        // --- COLOR SCALE ---
+        const statusColors = {
+            'Patched': '#22c55e', // green-500
+            'Still Unpatched': '#ef4444', // red-500
+            'Under Investigation': '#f59e0b', // amber-500
+        };
+
+        // --- D3 CHART SETUP (Timeline) ---
+        const timelineContainer = d3.select("#timeline-chart");
+        let svg, xScale, yScale, xAxis, yAxis, zoom;
+        let width, height, margin = { top: 20, right: 30, bottom: 60, left: 100 };
+
+        function initializeTimeline() {
+            width = timelineContainer.node().getBoundingClientRect().width - margin.left - margin.right;
+            height = timelineContainer.node().getBoundingClientRect().height - margin.top - margin.bottom;
+
+            svg = timelineContainer.append("svg")
+                .attr("width", width + margin.left + margin.right)
+                .attr("height", height + margin.top + margin.bottom)
+              .append("g")
+                .attr("transform", `translate(${margin.left},${margin.top})`);
+            
+            // Clip path to prevent dots from going outside the chart area during zoom
+            svg.append("defs").append("clipPath")
+                .attr("id", "clip")
+              .append("rect")
+                .attr("width", width)
+                .attr("height", height);
+
+            xScale = d3.scaleTime().range([0, width]);
+            yScale = d3.scalePoint().range([height, 0]).padding(0.5);
+
+            xAxis = d3.axisBottom(xScale).tickSize(-height).tickPadding(10);
+            yAxis = d3.axisLeft(yScale).tickSize(-width).tickPadding(10);
+            
+            svg.append("g").attr("class", "grid x-axis").attr("transform", `translate(0, ${height})`);
+            svg.append("g").attr("class", "grid y-axis");
+
+            // Axis labels
+            svg.append("text")
+                .attr("class", "axis-label")
+                .attr("text-anchor", "middle")
+                .attr("x", width / 2)
+                .attr("y", height + margin.bottom - 10)
+                .text("Disclosure Date");
+
+            svg.append("text")
+                .attr("class", "axis-label")
+                .attr("text-anchor", "middle")
+                .attr("transform", "rotate(-90)")
+                .attr("y", -margin.left + 20)
+                .attr("x", -height / 2)
+                .text("Vendor");
+            
+            const g = svg.append("g").attr("clip-path", "url(#clip)");
+            g.attr("class", "points-container");
+
+            // Zoom functionality
+            zoom = d3.zoom()
+                .scaleExtent([0.5, 20])
+                .extent([[0, 0], [width, height]])
+                .translateExtent([[0, 0], [width, height]])
+                .on("zoom", zoomed);
+
+            timelineContainer.select('svg').call(zoom);
+        }
+
+        function updateTimeline(data) {
+            if (!svg) return;
+            
+            // Update domains
+            const dateExtent = d3.extent(data, d => d.disclosureDate);
+            if(dateExtent[0]) { // Check if data is not empty
+                 xScale.domain(dateExtent).nice();
+            } else {
+                 xScale.domain([new Date(2023, 0, 1), new Date()]).nice();
+            }
+           
+            const vendors = [...new Set(data.map(d => d.vendor))].sort();
+            yScale.domain(vendors);
+            
+            // Update axes
+            svg.select(".x-axis").transition().duration(750).call(xAxis);
+            svg.select(".y-axis").transition().duration(750).call(yAxis);
+            svg.selectAll(".grid .tick text").attr("fill", "#9ca3af");
+
+            const pointsContainer = svg.select(".points-container");
+
+            const dots = pointsContainer.selectAll("circle")
+                .data(data, d => d.cveId);
+
+            dots.exit().transition().duration(500).attr("r", 0).remove();
+
+            dots.enter().append("circle")
+                .attr("cx", d => xScale(d.disclosureDate))
+                .attr("cy", d => yScale(d.vendor))
+                .attr("r", 0)
+                .style("fill", d => statusColors[d.status])
+                .style("stroke", "#111827")
+                .style("stroke-width", 1.5)
+                .style("cursor", "pointer")
+                .on("mouseover", handleMouseOver)
+                .on("mousemove", handleMouseMove)
+                .on("mouseleave", handleMouseLeave)
+                .on("click", handleDotClick)
+              .transition().duration(500)
+                .attr("r", 7);
+            
+            dots.transition().duration(750)
+                .attr("cx", d => xScale(d.disclosureDate))
+                .attr("cy", d => yScale(d.vendor))
+                .style("fill", d => statusColors[d.status]);
+
+            // Reset zoom after update
+            timelineContainer.select('svg').transition().duration(750).call(zoom.transform, d3.zoomIdentity);
+        }
+        
+        function zoomed(event) {
+            const newXScale = event.transform.rescaleX(xScale);
+            svg.select(".x-axis").call(xAxis.scale(newXScale));
+            svg.selectAll("circle")
+               .attr('cx', d => newXScale(d.disclosureDate));
+        }
+
+        // --- D3 CHART SETUP (Dashboard) ---
+        function updateDashboard(data) {
+            updateAvgTTP(data);
+            updateTopVendors(data);
+            updateMonthlyFreq(data);
+        }
+
+        function updateAvgTTP(data) {
+            const patched = data.filter(d => d.status === 'Patched' && d.patchDate && d.disclosureDate);
+            if (patched.length === 0) {
+                document.getElementById('avg-ttp').textContent = 'N/A';
+                return;
+            }
+            const totalDays = patched.reduce((acc, d) => {
+                const diffTime = Math.abs(d.patchDate - d.disclosureDate);
+                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                return acc + diffDays;
+            }, 0);
+            const avg = totalDays / patched.length;
+            document.getElementById('avg-ttp').textContent = `${avg.toFixed(1)} days`;
+        }
+        
+        function updateTopVendors(data) {
+            const container = d3.select("#top-vendors-chart");
+            container.selectAll("*").remove();
+
+            const vendorCounts = d3.rollup(data, v => v.length, d => d.vendor);
+            const topVendors = Array.from(vendorCounts, ([name, value]) => ({name, value}))
+                .sort((a,b) => d3.descending(a.value, b.value))
+                .slice(0, 5);
+            
+            if (topVendors.length === 0) return;
+
+            const chartWidth = container.node().getBoundingClientRect().width;
+            const chartHeight = container.node().getBoundingClientRect().height;
+            const margin = { top: 5, right: 10, bottom: 20, left: 80 };
+            
+            const svg = container.append("svg")
+                .attr("width", chartWidth)
+                .attr("height", chartHeight);
+
+            const x = d3.scaleLinear()
+                .domain([0, d3.max(topVendors, d => d.value)])
+                .range([margin.left, chartWidth - margin.right]);
+            
+            const y = d3.scaleBand()
+                .domain(topVendors.map(d => d.name))
+                .range([margin.top, chartHeight - margin.bottom])
+                .padding(0.2);
+
+            svg.append("g")
+              .selectAll("rect")
+              .data(topVendors)
+            
